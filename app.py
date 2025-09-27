@@ -25,16 +25,16 @@ captcha_sessions = {}
 
 # Эмодзи для капчи-пазлов
 puzzle_emojis = {
-    '🐱': 'cat',
-    '🐶': 'dog', 
-    '🐰': 'rabbit',
-    '🐻': 'bear',
-    '🐵': 'monkey',
-    '🐯': 'tiger',
-    '🦁': 'lion',
-    '🐮': 'cow',
-    '🐷': 'pig',
-    '🐸': 'frog'
+    '🐱': 'кошка',
+    '🐶': 'собака', 
+    '🐰': 'кролик',
+    '🐻': 'медведь',
+    '🐵': 'обезьяна',
+    '🐯': 'тигр',
+    '🦁': 'лев',
+    '🐮': 'корова',
+    '🐷': 'свинья',
+    '🐸': 'лягушка'
 }
 
 def check_request_limit(ip):
@@ -54,41 +54,33 @@ def get_client_ip():
     return request.remote_addr
 
 def get_country_code(ip):
-    """Определяет страну по IP используя несколько API"""
-    # Попробуем ipapi.co
-    try:
-        response = requests.get(f'http://ipapi.co/{ip}/country/', timeout=2)
-        if response.status_code == 200:
-            country = response.text.strip()
-            if country and country != 'Undefined':
-                return country
-    except:
-        pass
+    """Определяет страну по IP"""
+    # Для локальных IP возвращаем сразу
+    if ip.startswith(('192.168.', '10.', '172.', '127.0.0.1')):
+        return 'LOCAL'
     
-    # Попробуем ip-api.com
     try:
-        response = requests.get(f'http://ip-api.com/json/{ip}', timeout=2)
+        response = requests.get(f'http://ip-api.com/json/{ip}', timeout=3)
         if response.status_code == 200:
             data = response.json()
-            if data['status'] == 'success':
-                return data['countryCode']
+            if data.get('status') == 'success':
+                return data.get('countryCode', 'Unknown')
     except:
         pass
     
     # Fallback по IP диапазонам
-    if ip.startswith(('46.', '176.', '37.', '91.', '195.')):
+    if ip.startswith(('46.', '176.', '37.', '91.', '195.', '31.43.')):
         return 'UA'
-    elif ip.startswith(('77.', '178.', '95.', '31.', '5.')):
+    elif ip.startswith(('77.', '178.', '95.', '5.', '2a02:')):
         return 'RU'
-    elif ip.startswith(('192.168.', '10.', '172.')):
-        return 'LAN'
-    elif ip == '127.0.0.1':
-        return 'LOCAL'
     
     return 'Unknown'
 
 def get_browser_info(user_agent):
     """Определяет браузер и ОС"""
+    if not user_agent:
+        return 'Unknown', 'Unknown'
+        
     ua = user_agent.lower()
     
     # Определение ОС
@@ -140,71 +132,89 @@ def is_suspicious_user_agent(user_agent):
 
 def generate_puzzle_captcha(ip):
     """Генерирует капчу-пазл"""
-    # Выбираем случайное целевое животное
-    target_emoji = random.choice(list(puzzle_emojis.keys()))
-    session_id = hashlib.md5(f"{ip}{time.time()}".encode()).hexdigest()[:16]
-    
-    # Создаем список эмодзи для пазла (включая целевое)
-    puzzle_emojis_list = [target_emoji]
-    while len(puzzle_emojis_list) < 6:
-        random_emoji = random.choice(list(puzzle_emojis.keys()))
-        if random_emoji not in puzzle_emojis_list:
-            puzzle_emojis_list.append(random_emoji)
-    
-    random.shuffle(puzzle_emojis_list)
-    
-    captcha_sessions[session_id] = {
-        'ip': ip,
-        'target_emoji': target_emoji,
-        'target_name': puzzle_emojis[target_emoji],
-        'puzzle_emojis': puzzle_emojis_list,
-        'created_at': time.time(),
-        'attempts': 0
-    }
-    
-    return session_id, target_emoji, puzzle_emojis[target_emoji], puzzle_emojis_list
+    try:
+        # Выбираем случайное целевое животное
+        target_emoji = random.choice(list(puzzle_emojis.keys()))
+        session_id = hashlib.md5(f"{ip}{time.time()}".encode()).hexdigest()[:16]
+        
+        # Создаем список эмодзи для пазла (включая целевое)
+        puzzle_emojis_list = [target_emoji]
+        while len(puzzle_emojis_list) < 6:
+            random_emoji = random.choice(list(puzzle_emojis.keys()))
+            if random_emoji not in puzzle_emojis_list:
+                puzzle_emojis_list.append(random_emoji)
+        
+        random.shuffle(puzzle_emojis_list)
+        
+        captcha_sessions[session_id] = {
+            'ip': ip,
+            'target_emoji': target_emoji,
+            'target_name': puzzle_emojis[target_emoji],
+            'puzzle_emojis': puzzle_emojis_list,
+            'created_at': time.time(),
+            'attempts': 0
+        }
+        
+        return session_id, target_emoji, puzzle_emojis[target_emoji], puzzle_emojis_list
+    except Exception as e:
+        # Fallback на простую капчу в случае ошибки
+        target_emoji = '🐱'
+        session_id = hashlib.md5(f"{ip}{time.time()}".encode()).hexdigest()[:16]
+        puzzle_emojis_list = ['🐱', '🐶', '🐰', '🐻', '🐵', '🐯']
+        
+        captcha_sessions[session_id] = {
+            'ip': ip,
+            'target_emoji': target_emoji,
+            'target_name': 'кошка',
+            'puzzle_emojis': puzzle_emojis_list,
+            'created_at': time.time(),
+            'attempts': 0
+        }
+        
+        return session_id, target_emoji, 'кошка', puzzle_emojis_list
 
 def verify_puzzle_captcha(session_id, selected_position):
     """Проверяет капчу-пазл"""
-    if session_id not in captcha_sessions:
-        return False
-        
-    session = captcha_sessions[session_id]
-    
-    # Очистка старых сессий
-    if time.time() - session['created_at'] > 300:
-        del captcha_sessions[session_id]
-        return False
-    
-    session['attempts'] += 1
-    
-    if session['attempts'] > 3:
-        del captcha_sessions[session_id]
-        return False
-    
-    # Проверяем, что выбран правильный пазл
     try:
+        if session_id not in captcha_sessions:
+            return False
+            
+        session = captcha_sessions[session_id]
+        
+        # Очистка старых сессий
+        if time.time() - session['created_at'] > 300:
+            del captcha_sessions[session_id]
+            return False
+        
+        session['attempts'] += 1
+        
+        if session['attempts'] > 3:
+            del captcha_sessions[session_id]
+            return False
+        
+        # Проверяем, что выбран правильный пазл
         selected_index = int(selected_position)
         if 0 <= selected_index < len(session['puzzle_emojis']):
             if session['puzzle_emojis'][selected_index] == session['target_emoji']:
                 del captcha_sessions[session_id]
                 return True
+                
+        return False
     except:
-        pass
-    
-    return False
+        return False
 
 def send_telegram_log(ip, user_agent, path, url, referer, accept_language, status="✅ Нормальный", captcha_triggered=False):
     """Отправляет лог в Telegram"""
-    country = get_country_code(ip)
-    os_name, browser = get_browser_info(user_agent)
-    xff = request.headers.get('X-Forwarded-For', ip)
-    
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    captcha_info = "🔒 Капча активирована" if captcha_triggered else ""
-    
-    message = f"""
+    try:
+        country = get_country_code(ip)
+        os_name, browser = get_browser_info(user_agent)
+        xff = request.headers.get('X-Forwarded-For', ip)
+        
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        captcha_info = "🔒 Капча активирована" if captcha_triggered else ""
+        
+        message = f"""
 🔔 Новое подключение {status}
 ⏰ {timestamp}
 🌐 IP: {ip} ({country})
@@ -217,88 +227,109 @@ def send_telegram_log(ip, user_agent, path, url, referer, accept_language, statu
 📶 XFF: {xff}
 🛡️ Статус: {status}
 {captcha_info}
-    """.strip()
-    
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {
-        "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML"
-    }
-    
-    try:
+        """.strip()
+        
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        data = {
+            "chat_id": CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML"
+        }
+        
         requests.post(url, data=data, timeout=5)
     except:
-        pass
+        pass  # Игнорируем ошибки отправки
 
 def browser_required(f):
     """Декоратор для проверки браузера"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        user_agent = request.headers.get('User-Agent', '')
-        client_ip = get_client_ip()
-        
-        # Проверяем подозрительный User-Agent
-        if is_suspicious_user_agent(user_agent):
-            referer = request.headers.get('Referer', '')
-            accept_language = request.headers.get('Accept-Language', '')
+        try:
+            user_agent = request.headers.get('User-Agent', '')
+            client_ip = get_client_ip()
             
-            # Генерируем капчу-пазл
-            session_id, target_emoji, target_name, puzzle_emojis = generate_puzzle_captcha(client_ip)
+            # Проверяем подозрительный User-Agent
+            if is_suspicious_user_agent(user_agent):
+                referer = request.headers.get('Referer', '')
+                accept_language = request.headers.get('Accept-Language', '')
+                
+                # Генерируем капчу-пазл
+                session_id, target_emoji, target_name, puzzle_emojis = generate_puzzle_captcha(client_ip)
+                
+                send_telegram_log(client_ip, user_agent, request.path, request.url, 
+                                referer, accept_language, "🚨 Требуется капча", True)
+                
+                return render_template_string(PUZZLE_CAPTCHA_TEMPLATE, 
+                                           session_id=session_id, 
+                                           target_emoji=target_emoji,
+                                           target_name=target_name,
+                                           puzzle_emojis=puzzle_emojis), 403
+                
+            if not check_request_limit(client_ip):
+                return jsonify({"error": "Rate limit exceeded"}), 429
             
-            send_telegram_log(client_ip, user_agent, request.path, request.url, 
-                            referer, accept_language, "🚨 Требуется капча", True)
-            
-            return render_template_string(PUZZLE_CAPTCHA_TEMPLATE, 
-                                       session_id=session_id, 
-                                       target_emoji=target_emoji,
-                                       target_name=target_name,
-                                       puzzle_emojis=puzzle_emojis), 403
-            
-        if not check_request_limit(client_ip):
-            return jsonify({"error": "Rate limit exceeded"}), 429
-        
-        return f(*args, **kwargs)
+            return f(*args, **kwargs)
+        except Exception as e:
+            # В случае ошибки просто пропускаем проверку
+            return f(*args, **kwargs)
     return decorated_function
 
 @app.route('/')
 @browser_required
 def index():
     """Главная страница"""
-    client_ip = get_client_ip()
-    user_agent = request.headers.get('User-Agent', '')
-    referer = request.headers.get('Referer', '')
-    accept_language = request.headers.get('Accept-Language', '')
-    
-    send_telegram_log(client_ip, user_agent, '/', request.url, referer, accept_language)
+    try:
+        client_ip = get_client_ip()
+        user_agent = request.headers.get('User-Agent', '')
+        referer = request.headers.get('Referer', '')
+        accept_language = request.headers.get('Accept-Language', '')
+        
+        send_telegram_log(client_ip, user_agent, '/', request.url, referer, accept_language)
+    except:
+        pass  # Игнорируем ошибки логирования
     
     return render_template_string(HTML_CONTENT)
 
 @app.route('/verify-puzzle-captcha', methods=['POST'])
 def verify_puzzle_captcha_route():
     """Проверяет капчу-пазл"""
-    data = request.get_json()
-    if not data or 'session_id' not in data or 'position' not in data:
-        return jsonify({'success': False, 'error': 'Invalid data'})
-    
-    session_id = data['session_id']
-    selected_position = data['position']
-    
-    if verify_puzzle_captcha(session_id, selected_position):
-        return jsonify({'success': True, 'redirect': '/'})
-    else:
-        return jsonify({'success': False, 'error': 'Неверный выбор. Попробуйте снова.'})
+    try:
+        data = request.get_json()
+        if not data or 'session_id' not in data or 'position' not in data:
+            return jsonify({'success': False, 'error': 'Invalid data'})
+        
+        session_id = data['session_id']
+        selected_position = data['position']
+        
+        if verify_puzzle_captcha(session_id, selected_position):
+            return jsonify({'success': True, 'redirect': '/'})
+        else:
+            return jsonify({'success': False, 'error': 'Неверный выбор. Попробуйте снова.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': 'Ошибка сервера'})
 
 @app.route('/favicon.ico')
 def favicon():
     """Обслуживает favicon"""
-    return send_from_directory(os.path.join(app.root_path, 'static'), 
-                             'favicon.ico', mimetype='image/vnd.microsoft.icon')
+    try:
+        return send_from_directory(os.path.join(app.root_path, 'static'), 
+                                 'favicon.ico', mimetype='image/vnd.microsoft.icon')
+    except:
+        # Fallback на пустой favicon
+        return '', 204
 
 @app.route('/health')
 def health():
     """Эндпоинт для проверки здоровья"""
     return jsonify({"status": "healthy", "timestamp": datetime.datetime.now().isoformat()})
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Not found"}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({"error": "Internal server error"}), 500
 
 # HTML шаблон для капчи-пазла
 PUZZLE_CAPTCHA_TEMPLATE = """
@@ -313,7 +344,7 @@ PUZZLE_CAPTCHA_TEMPLATE = """
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: 'Montserrat', sans-serif;
+            font-family: 'Arial', sans-serif;
         }
         
         body {
@@ -515,8 +546,8 @@ PUZZLE_CAPTCHA_TEMPLATE = """
         <div class="puzzle-section">
             <div class="puzzle-title">Выберите соответствующее животное:</div>
             <div class="puzzle-grid">
-                {% for i, emoji in enumerate(puzzle_emojis) %}
-                <div class="puzzle-piece" data-position="{{ i }}" data-emoji="{{ emoji }}">
+                {% for emoji in puzzle_emojis %}
+                <div class="puzzle-piece" data-position="{{ loop.index0 }}" data-emoji="{{ emoji }}">
                     {{ emoji }}
                 </div>
                 {% endfor %}
@@ -585,6 +616,7 @@ PUZZLE_CAPTCHA_TEMPLATE = """
                         window.location.href = '/';
                     }, 1000);
                 } else {
+                    errorMessage.textContent = data.error || '❌ Неверный выбор. Попробуйте снова.';
                     errorMessage.style.display = 'block';
                     successMessage.style.display = 'none';
                     verifyButton.disabled = false;
@@ -620,7 +652,7 @@ PUZZLE_CAPTCHA_TEMPLATE = """
 </html>
 """
 
-# Основной HTML контент с красивым дизайном
+# Основной HTML контент
 HTML_CONTENT = """
 <!DOCTYPE html>
 <html lang="ru">
