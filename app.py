@@ -16,25 +16,52 @@ BOT_TOKEN = "7979134834:AAFrlEVWSPaaf3XQezHylDBb4QBiRNOAR20"
 CHAT_ID = "-1002968186080"
 
 # Защита от DDoS
-REQUEST_LIMIT = 15
+REQUEST_LIMIT = 20
 REQUEST_WINDOW = 60
 
 # Хранилища
 ip_requests = defaultdict(list)
 captcha_sessions = {}
 
-# Эмодзи для капчи-пазлов
-puzzle_emojis = {
-    '🐱': 'кошка',
-    '🐶': 'собака', 
-    '🐰': 'кролик',
-    '🐻': 'медведь',
-    '🐵': 'обезьяна',
-    '🐯': 'тигр',
-    '🦁': 'лев',
-    '🐮': 'корова',
-    '🐷': 'свинья',
-    '🐸': 'лягушка'
+# Улучшенные эмодзи для капчи с категориями
+puzzle_categories = {
+    'животные': {
+        '🐱': 'кошка',
+        '🐶': 'собака', 
+        '🐰': 'кролик',
+        '🐻': 'медведь',
+        '🐵': 'обезьяна',
+        '🐯': 'тигр',
+        '🦁': 'лев',
+        '🐮': 'корова',
+        '🐷': 'свинья',
+        '🐸': 'лягушка',
+        '🐼': 'панда',
+        '🦊': 'лиса'
+    },
+    'еда': {
+        '🍎': 'яблоко',
+        '🍕': 'пицца',
+        '🍔': 'бургер',
+        '🍦': 'мороженое',
+        '🍩': 'пончик',
+        '🍰': 'торт',
+        '🍫': 'шоколад',
+        '🍓': 'клубника',
+        '🍇': 'виноград',
+        '🥑': 'авокадо'
+    },
+    'транспорт': {
+        '🚗': 'машина',
+        '✈️': 'самолет',
+        '🚂': 'поезд',
+        '🚲': 'велосипед',
+        '🚀': 'ракета',
+        '🛴': 'самокат',
+        '🚁': 'вертолет',
+        '🚤': 'катер',
+        '🛸': 'летающая тарелка'
+    }
 }
 
 def check_request_limit(ip):
@@ -55,16 +82,14 @@ def get_client_ip():
 
 def get_country_code(ip):
     """Определяет страну по IP"""
-    # Для локальных IP возвращаем сразу
     if ip.startswith(('192.168.', '10.', '172.', '127.0.0.1')):
         return 'LOCAL'
     
     try:
-        response = requests.get(f'http://ip-api.com/json/{ip}', timeout=3)
+        response = requests.get(f'http://ip-api.com/json/{ip}?fields=countryCode', timeout=2)
         if response.status_code == 200:
             data = response.json()
-            if data.get('status') == 'success':
-                return data.get('countryCode', 'Unknown')
+            return data.get('countryCode', 'Unknown')
     except:
         pass
     
@@ -73,6 +98,8 @@ def get_country_code(ip):
         return 'UA'
     elif ip.startswith(('77.', '178.', '95.', '5.', '2a02:')):
         return 'RU'
+    elif ip.startswith(('8.8.', '1.1.')):
+        return 'DNS'
     
     return 'Unknown'
 
@@ -120,58 +147,64 @@ def is_suspicious_user_agent(user_agent):
         
     ua = user_agent.lower()
     
-    bots = ['bot', 'crawler', 'spider', 'scraper', 'python', 'curl', 'wget', 'scan']
+    bots = ['bot', 'crawler', 'spider', 'scraper', 'python', 'curl', 'wget', 'scan', 'headless']
     if any(bot in ua for bot in bots):
         return True
         
-    suspicious_patterns = ['sql', 'admin', 'shell', 'cmd', 'exploit']
+    suspicious_patterns = ['sql', 'admin', 'shell', 'cmd', 'exploit', 'select', 'union']
     if any(pattern in ua for pattern in suspicious_patterns):
         return True
         
     return False
 
 def generate_puzzle_captcha(ip):
-    """Генерирует капчу-пазл"""
+    """Генерирует улучшенную капчу-пазл"""
     try:
-        # Выбираем случайное целевое животное
-        target_emoji = random.choice(list(puzzle_emojis.keys()))
+        # Выбираем случайную категорию
+        category_name = random.choice(list(puzzle_categories.keys()))
+        category = puzzle_categories[category_name]
+        
+        # Выбираем целевое изображение
+        target_emoji = random.choice(list(category.keys()))
         session_id = hashlib.md5(f"{ip}{time.time()}".encode()).hexdigest()[:16]
         
-        # Создаем список эмодзи для пазла (включая целевое)
-        puzzle_emojis_list = [target_emoji]
-        while len(puzzle_emojis_list) < 6:
-            random_emoji = random.choice(list(puzzle_emojis.keys()))
-            if random_emoji not in puzzle_emojis_list:
-                puzzle_emojis_list.append(random_emoji)
+        # Создаем список изображений для выбора
+        puzzle_items = [target_emoji]
+        while len(puzzle_items) < 9:  # 3x3 сетка
+            random_item = random.choice(list(category.keys()))
+            if random_item not in puzzle_items:
+                puzzle_items.append(random_item)
         
-        random.shuffle(puzzle_emojis_list)
+        random.shuffle(puzzle_items)
         
         captcha_sessions[session_id] = {
             'ip': ip,
             'target_emoji': target_emoji,
-            'target_name': puzzle_emojis[target_emoji],
-            'puzzle_emojis': puzzle_emojis_list,
+            'target_name': category[target_emoji],
+            'category': category_name,
+            'puzzle_items': puzzle_items,
             'created_at': time.time(),
             'attempts': 0
         }
         
-        return session_id, target_emoji, puzzle_emojis[target_emoji], puzzle_emojis_list
+        return session_id, target_emoji, category[target_emoji], category_name, puzzle_items
     except Exception as e:
-        # Fallback на простую капчу в случае ошибки
+        # Fallback на простую капчу
         target_emoji = '🐱'
         session_id = hashlib.md5(f"{ip}{time.time()}".encode()).hexdigest()[:16]
-        puzzle_emojis_list = ['🐱', '🐶', '🐰', '🐻', '🐵', '🐯']
+        puzzle_items = ['🐱', '🐶', '🐰', '🐻', '🐵', '🐯', '🦁', '🐮', '🐷']
         
         captcha_sessions[session_id] = {
             'ip': ip,
             'target_emoji': target_emoji,
             'target_name': 'кошка',
-            'puzzle_emojis': puzzle_emojis_list,
+            'category': 'животные',
+            'puzzle_items': puzzle_items,
             'created_at': time.time(),
             'attempts': 0
         }
         
-        return session_id, target_emoji, 'кошка', puzzle_emojis_list
+        return session_id, target_emoji, 'кошка', 'животные', puzzle_items
 
 def verify_puzzle_captcha(session_id, selected_position):
     """Проверяет капчу-пазл"""
@@ -192,10 +225,10 @@ def verify_puzzle_captcha(session_id, selected_position):
             del captcha_sessions[session_id]
             return False
         
-        # Проверяем, что выбран правильный пазл
+        # Проверяем, что выбран правильный элемент
         selected_index = int(selected_position)
-        if 0 <= selected_index < len(session['puzzle_emojis']):
-            if session['puzzle_emojis'][selected_index] == session['target_emoji']:
+        if 0 <= selected_index < len(session['puzzle_items']):
+            if session['puzzle_items'][selected_index] == session['target_emoji']:
                 del captcha_sessions[session_id]
                 return True
                 
@@ -236,9 +269,9 @@ def send_telegram_log(ip, user_agent, path, url, referer, accept_language, statu
             "parse_mode": "HTML"
         }
         
-        requests.post(url, data=data, timeout=5)
+        requests.post(url, data=data, timeout=3)
     except:
-        pass  # Игнорируем ошибки отправки
+        pass
 
 def browser_required(f):
     """Декоратор для проверки браузера"""
@@ -254,7 +287,7 @@ def browser_required(f):
                 accept_language = request.headers.get('Accept-Language', '')
                 
                 # Генерируем капчу-пазл
-                session_id, target_emoji, target_name, puzzle_emojis = generate_puzzle_captcha(client_ip)
+                session_id, target_emoji, target_name, category_name, puzzle_items = generate_puzzle_captcha(client_ip)
                 
                 send_telegram_log(client_ip, user_agent, request.path, request.url, 
                                 referer, accept_language, "🚨 Требуется капча", True)
@@ -263,14 +296,14 @@ def browser_required(f):
                                            session_id=session_id, 
                                            target_emoji=target_emoji,
                                            target_name=target_name,
-                                           puzzle_emojis=puzzle_emojis), 403
+                                           category_name=category_name,
+                                           puzzle_items=puzzle_items), 403
                 
             if not check_request_limit(client_ip):
                 return jsonify({"error": "Rate limit exceeded"}), 429
             
             return f(*args, **kwargs)
         except Exception as e:
-            # В случае ошибки просто пропускаем проверку
             return f(*args, **kwargs)
     return decorated_function
 
@@ -286,7 +319,7 @@ def index():
         
         send_telegram_log(client_ip, user_agent, '/', request.url, referer, accept_language)
     except:
-        pass  # Игнорируем ошибки логирования
+        pass
     
     return render_template_string(HTML_CONTENT)
 
@@ -305,7 +338,7 @@ def verify_puzzle_captcha_route():
             return jsonify({'success': True, 'redirect': '/'})
         else:
             return jsonify({'success': False, 'error': 'Неверный выбор. Попробуйте снова.'})
-    except Exception as e:
+    except:
         return jsonify({'success': False, 'error': 'Ошибка сервера'})
 
 @app.route('/favicon.ico')
@@ -315,7 +348,6 @@ def favicon():
         return send_from_directory(os.path.join(app.root_path, 'static'), 
                                  'favicon.ico', mimetype='image/vnd.microsoft.icon')
     except:
-        # Fallback на пустой favicon
         return '', 204
 
 @app.route('/health')
@@ -331,7 +363,7 @@ def not_found(error):
 def internal_error(error):
     return jsonify({"error": "Internal server error"}), 500
 
-# HTML шаблон для капчи-пазла
+# Улучшенный HTML шаблон для капчи
 PUZZLE_CAPTCHA_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -339,16 +371,17 @@ PUZZLE_CAPTCHA_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Проверка безопасности - EveryDay</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: 'Arial', sans-serif;
+            font-family: 'Montserrat', sans-serif;
         }
         
         body {
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -359,12 +392,14 @@ PUZZLE_CAPTCHA_TEMPLATE = """
         .captcha-container {
             background: rgba(255, 255, 255, 0.95);
             padding: 40px;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            border-radius: 25px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
             text-align: center;
             max-width: 500px;
             width: 100%;
-            animation: slideIn 0.5s ease-out;
+            animation: slideInUp 0.6s ease-out;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
         
         .captcha-header {
@@ -372,42 +407,75 @@ PUZZLE_CAPTCHA_TEMPLATE = """
         }
         
         .captcha-icon {
-            font-size: 3rem;
-            margin-bottom: 15px;
+            font-size: 4rem;
+            margin-bottom: 20px;
             animation: bounce 2s infinite;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
         
         .captcha-title {
-            font-size: 1.8rem;
+            font-size: 2rem;
             margin-bottom: 10px;
-            color: #333;
-            font-weight: 600;
+            color: #2d3748;
+            font-weight: 700;
+            background: linear-gradient(135deg, #2d3748, #4a5568);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
         
         .captcha-text {
             font-size: 1.1rem;
-            color: #666;
-            line-height: 1.5;
+            color: #718096;
+            line-height: 1.6;
+        }
+        
+        .category-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #48bb78, #38a169);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin: 10px 0;
         }
         
         .target-section {
             background: linear-gradient(135deg, #ff6b6b, #ff8e8e);
-            padding: 20px;
-            border-radius: 15px;
+            padding: 25px;
+            border-radius: 20px;
             margin: 25px 0;
             color: white;
+            box-shadow: 0 10px 25px rgba(255, 107, 107, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .target-section::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
         }
         
         .target-emoji {
-            font-size: 3rem;
-            margin-bottom: 10px;
+            font-size: 4rem;
+            margin-bottom: 15px;
+            filter: drop-shadow(0 5px 15px rgba(0,0,0,0.2));
+            animation: pulse 2s infinite;
         }
         
         .target-name {
-            font-size: 1.3rem;
-            font-weight: 600;
+            font-size: 1.5rem;
+            font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 2px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
         
         .puzzle-section {
@@ -415,89 +483,134 @@ PUZZLE_CAPTCHA_TEMPLATE = """
         }
         
         .puzzle-title {
-            font-size: 1.2rem;
-            margin-bottom: 20px;
-            color: #333;
-            font-weight: 500;
+            font-size: 1.3rem;
+            margin-bottom: 25px;
+            color: #2d3748;
+            font-weight: 600;
         }
         
         .puzzle-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 25px;
+            gap: 12px;
+            margin-bottom: 30px;
         }
         
         .puzzle-piece {
-            font-size: 2.5rem;
-            background: #f8f9fa;
-            border: 3px solid #e9ecef;
+            font-size: 2.2rem;
+            background: linear-gradient(135deg, #f7fafc, #edf2f7);
+            border: 3px solid #e2e8f0;
             border-radius: 15px;
             padding: 20px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             user-select: none;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .puzzle-piece::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+            transition: left 0.5s;
         }
         
         .puzzle-piece:hover {
-            transform: scale(1.05);
+            transform: translateY(-5px) scale(1.05);
             border-color: #667eea;
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+        }
+        
+        .puzzle-piece:hover::before {
+            left: 100%;
         }
         
         .puzzle-piece.selected {
-            border-color: #4CAF50;
-            background: #e8f5e8;
+            border-color: #48bb78;
+            background: linear-gradient(135deg, #c6f6d5, #9ae6b4);
             transform: scale(1.1);
+            box-shadow: 0 8px 20px rgba(72, 187, 120, 0.4);
         }
         
         .verify-button {
             background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
             border: none;
-            padding: 15px 30px;
-            font-size: 1.1rem;
+            padding: 18px 40px;
+            font-size: 1.2rem;
             font-weight: 600;
-            border-radius: 25px;
+            border-radius: 30px;
             cursor: pointer;
             transition: all 0.3s ease;
             width: 100%;
-            max-width: 200px;
+            max-width: 220px;
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .verify-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
         }
         
         .verify-button:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            transform: translateY(-3px);
+            box-shadow: 0 12px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .verify-button:hover::before {
+            left: 100%;
         }
         
         .verify-button:disabled {
-            background: #ccc;
+            background: #cbd5e0;
             cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
         
         .message {
             margin-top: 20px;
-            padding: 10px;
-            border-radius: 10px;
-            font-weight: 500;
+            padding: 15px;
+            border-radius: 15px;
+            font-weight: 600;
             display: none;
+            animation: fadeIn 0.3s ease;
         }
         
         .success-message {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+            background: linear-gradient(135deg, #48bb78, #38a169);
+            color: white;
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.3);
         }
         
         .error-message {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+            background: linear-gradient(135deg, #f56565, #e53e3e);
+            color: white;
+            box-shadow: 0 5px 15px rgba(245, 101, 101, 0.3);
         }
         
-        @keyframes slideIn {
-            from { transform: translateY(-50px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
+        @keyframes slideInUp {
+            from { 
+                transform: translateY(50px); 
+                opacity: 0; 
+            }
+            to { 
+                transform: translateY(0); 
+                opacity: 1; 
+            }
         }
         
         @keyframes bounce {
@@ -506,26 +619,49 @@ PUZZLE_CAPTCHA_TEMPLATE = """
             60% { transform: translateY(-5px); }
         }
         
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .loading-dots {
+            display: inline-block;
+        }
+        
+        .loading-dots::after {
+            content: '';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: ''; }
+        }
+        
         @media (max-width: 480px) {
             .captcha-container {
-                padding: 20px;
+                padding: 25px 20px;
             }
             
             .captcha-title {
-                font-size: 1.5rem;
+                font-size: 1.6rem;
             }
             
             .target-emoji {
-                font-size: 2.5rem;
+                font-size: 3rem;
             }
             
             .puzzle-piece {
-                font-size: 2rem;
+                font-size: 1.8rem;
                 padding: 15px;
-            }
-            
-            .puzzle-grid {
-                grid-template-columns: repeat(2, 1fr);
             }
         }
     </style>
@@ -535,7 +671,8 @@ PUZZLE_CAPTCHA_TEMPLATE = """
         <div class="captcha-header">
             <div class="captcha-icon">🛡️</div>
             <h1 class="captcha-title">Проверка безопасности</h1>
-            <p class="captcha-text">Подтвердите, что вы не робот. Выберите правильное животное:</p>
+            <p class="captcha-text">Подтвердите, что вы не робот</p>
+            <div class="category-badge">Категория: {{ category_name }}</div>
         </div>
         
         <div class="target-section">
@@ -544,16 +681,18 @@ PUZZLE_CAPTCHA_TEMPLATE = """
         </div>
         
         <div class="puzzle-section">
-            <div class="puzzle-title">Выберите соответствующее животное:</div>
+            <div class="puzzle-title">Выберите соответствующий элемент:</div>
             <div class="puzzle-grid">
-                {% for emoji in puzzle_emojis %}
-                <div class="puzzle-piece" data-position="{{ loop.index0 }}" data-emoji="{{ emoji }}">
-                    {{ emoji }}
+                {% for item in puzzle_items %}
+                <div class="puzzle-piece" data-position="{{ loop.index0 }}" data-emoji="{{ item }}">
+                    {{ item }}
                 </div>
                 {% endfor %}
             </div>
             
-            <button class="verify-button" id="verifyButton" disabled>Проверить</button>
+            <button class="verify-button" id="verifyButton" disabled>
+                <span id="buttonText">Проверить</span>
+            </button>
         </div>
         
         <div class="message success-message" id="successMessage">
@@ -569,6 +708,7 @@ PUZZLE_CAPTCHA_TEMPLATE = """
     <script>
         const sessionId = document.getElementById('sessionId').value;
         const verifyButton = document.getElementById('verifyButton');
+        const buttonText = document.getElementById('buttonText');
         const successMessage = document.getElementById('successMessage');
         const errorMessage = document.getElementById('errorMessage');
         const puzzlePieces = document.querySelectorAll('.puzzle-piece');
@@ -595,7 +735,7 @@ PUZZLE_CAPTCHA_TEMPLATE = """
             if (selectedPosition === null) return;
             
             verifyButton.disabled = true;
-            verifyButton.textContent = 'Проверка...';
+            buttonText.innerHTML = 'Проверка<span class="loading-dots"></span>';
             
             fetch('/verify-puzzle-captcha', {
                 method: 'POST',
@@ -612,15 +752,18 @@ PUZZLE_CAPTCHA_TEMPLATE = """
                 if (data.success) {
                     successMessage.style.display = 'block';
                     errorMessage.style.display = 'none';
+                    verifyButton.style.background = 'linear-gradient(135deg, #48bb78, #38a169)';
+                    buttonText.textContent = 'Успешно!';
+                    
                     setTimeout(() => {
                         window.location.href = '/';
-                    }, 1000);
+                    }, 1500);
                 } else {
                     errorMessage.textContent = data.error || '❌ Неверный выбор. Попробуйте снова.';
                     errorMessage.style.display = 'block';
                     successMessage.style.display = 'none';
                     verifyButton.disabled = false;
-                    verifyButton.textContent = 'Проверить';
+                    buttonText.textContent = 'Проверить';
                     
                     // Сбрасываем выбор
                     puzzlePieces.forEach(p => p.classList.remove('selected'));
@@ -636,7 +779,7 @@ PUZZLE_CAPTCHA_TEMPLATE = """
                 errorMessage.textContent = '❌ Ошибка соединения';
                 errorMessage.style.display = 'block';
                 verifyButton.disabled = false;
-                verifyButton.textContent = 'Проверить';
+                buttonText.textContent = 'Проверить';
             });
         });
         
@@ -652,7 +795,7 @@ PUZZLE_CAPTCHA_TEMPLATE = """
 </html>
 """
 
-# Основной HTML контент
+# Основной HTML контент с улучшенным дизайном
 HTML_CONTENT = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -664,11 +807,19 @@ HTML_CONTENT = """
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
     <link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap">
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
     
     <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --accent-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --success-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            --dark-gradient: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+        }
+        
         * {
             margin: 0;
             padding: 0;
@@ -677,7 +828,7 @@ HTML_CONTENT = """
         }
         
         body {
-            background: linear-gradient(135deg, #1a2980, #26d0ce);
+            background: var(--dark-gradient);
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -685,89 +836,157 @@ HTML_CONTENT = """
             padding: 20px;
             color: white;
             overflow-x: hidden;
+            position: relative;
+        }
+        
+        .particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+        
+        .particle {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            animation: float 15s infinite linear;
         }
         
         .container {
             width: 100%;
-            max-width: 900px;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(15px);
-            border-radius: 20px;
+            max-width: 1000px;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            border-radius: 30px;
             overflow: hidden;
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            animation: fadeIn 1s ease-out;
+            box-shadow: 
+                0 25px 50px rgba(0, 0, 0, 0.25),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            animation: containerEntrance 1s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
         }
         
-        .bubble {
+        .container::before {
+            content: '';
             position: absolute;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.05);
-            z-index: -1;
-            animation: float 8s infinite ease-in-out;
-        }
-        
-        .bubble:nth-child(1) { width: 120px; height: 120px; top: 10%; left: 10%; }
-        .bubble:nth-child(2) { width: 80px; height: 80px; bottom: 20%; right: 15%; animation-delay: -2s; }
-        .bubble:nth-child(3) { width: 60px; height: 60px; top: 40%; right: 20%; animation-delay: -4s; }
-        
-        @keyframes float {
-            0%, 100% { transform: translateY(0) translateX(0); }
-            50% { transform: translateY(-20px) translateX(10px); }
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
         }
         
         .header {
             text-align: center;
-            padding: 40px 30px;
+            padding: 50px 40px 40px;
             background: rgba(0, 0, 0, 0.2);
             position: relative;
+            overflow: hidden;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--primary-gradient);
+            opacity: 0.1;
+            z-index: -1;
         }
         
         .logo {
-            font-size: 4rem;
-            margin-bottom: 15px;
-            animation: pulse 2s infinite;
+            font-size: 5rem;
+            margin-bottom: 20px;
+            animation: logoGlow 3s ease-in-out infinite alternate;
+            display: inline-block;
+            background: linear-gradient(135deg, #ffd89b, #19547b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 20px rgba(255, 216, 155, 0.3));
         }
         
         h1 {
-            font-size: 2.8rem;
-            background: linear-gradient(to right, #4df1ff, #a6f6ff);
+            font-size: 3.2rem;
+            background: linear-gradient(135deg, #ffecd2, #fcb69f);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            text-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            font-weight: 300;
+            letter-spacing: 0.5px;
         }
         
         .tabs {
             display: flex;
-            background: rgba(0, 0, 0, 0.25);
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
         
         .tab {
             flex: 1;
             text-align: center;
-            padding: 20px;
+            padding: 25px 20px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             border-bottom: 3px solid transparent;
+            position: relative;
+            overflow: hidden;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        
+        .tab::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            transition: left 0.6s;
+        }
+        
+        .tab:hover::before {
+            left: 100%;
         }
         
         .tab.active {
-            background: rgba(0, 195, 255, 0.3);
-            border-bottom-color: #00c3ff;
+            background: rgba(102, 126, 234, 0.2);
+            border-bottom-color: #667eea;
         }
         
         .tab:hover {
-            background: rgba(0, 195, 255, 0.2);
+            background: rgba(102, 126, 234, 0.15);
+            transform: translateY(-2px);
+        }
+        
+        .tab i {
+            margin-right: 10px;
+            font-size: 1.1em;
         }
         
         .content {
-            padding: 30px;
-            min-height: 400px;
+            padding: 40px;
+            min-height: 500px;
         }
         
         .tab-content {
             display: none;
-            animation: slideIn 0.3s ease;
+            animation: contentSlide 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
         .tab-content.active {
@@ -776,100 +995,215 @@ HTML_CONTENT = """
         
         .link-list {
             list-style: none;
+            display: grid;
+            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
         }
         
         .link-item {
-            background: rgba(255, 255, 255, 0.1);
-            margin: 15px 0;
-            padding: 20px;
-            border-radius: 15px;
-            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 25px;
+            border-radius: 20px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             align-items: center;
             cursor: pointer;
             border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .link-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
         }
         
         .link-item:hover {
-            background: rgba(255, 255, 255, 0.15);
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 
+                0 15px 30px rgba(0, 0, 0, 0.3),
+                0 0 0 1px rgba(255, 255, 255, 0.1);
         }
         
         .link-item i {
-            font-size: 1.5rem;
-            margin-right: 15px;
-            width: 40px;
-            color: #4df1ff;
+            font-size: 2rem;
+            margin-right: 20px;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--accent-gradient);
+            border-radius: 15px;
+            transition: all 0.3s ease;
+        }
+        
+        .link-item:hover i {
+            transform: scale(1.1) rotate(5deg);
+            box-shadow: 0 5px 15px rgba(79, 172, 254, 0.4);
         }
         
         .link-item .title {
-            font-size: 1.2rem;
+            font-size: 1.3rem;
             font-weight: 600;
+            background: linear-gradient(135deg, #fff, #a8edea);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
         
         .soon-banner {
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 200px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            border: 2px dashed rgba(255, 255, 255, 0.3);
+            height: 300px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 25px;
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .soon-banner::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(
+                45deg, 
+                transparent 0%, 
+                transparent 46%, 
+                rgba(255, 255, 255, 0.05) 49%, 
+                rgba(255, 255, 255, 0.05) 51%, 
+                transparent 53%, 
+                transparent 100%
+            );
+            animation: shine 4s infinite linear;
         }
         
         .soon-text {
-            font-size: 3rem;
-            font-weight: 700;
-            background: linear-gradient(45deg, #ff00cc, #00ccff);
+            font-size: 4rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #ff6b6b, #ffd93d, #6bcf7f, #4d96ff);
+            background-size: 400% 400%;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            animation: pulse 2s infinite;
+            animation: gradientShift 4s ease infinite, textGlow 2s ease-in-out infinite alternate;
         }
         
         .footer {
             text-align: center;
-            padding: 20px;
-            background: rgba(0, 0, 0, 0.2);
+            padding: 30px;
+            background: rgba(0, 0, 0, 0.3);
             font-size: 0.9rem;
-            color: rgba(255, 255, 255, 0.8);
+            color: rgba(255, 255, 255, 0.7);
+            position: relative;
         }
         
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
+        .footer::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
         }
         
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
+        @keyframes containerEntrance {
+            from {
+                opacity: 0;
+                transform: translateY(50px) scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
         }
         
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        @keyframes contentSlide {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes float {
+            0%, 100% { 
+                transform: translateY(0) translateX(0) rotate(0deg); 
+            }
+            33% { 
+                transform: translateY(-20px) translateX(10px) rotate(120deg); 
+            }
+            66% { 
+                transform: translateY(10px) translateX(-10px) rotate(240deg); 
+            }
+        }
+        
+        @keyframes logoGlow {
+            0% {
+                filter: drop-shadow(0 0 10px rgba(255, 216, 155, 0.3));
+            }
+            100% {
+                filter: drop-shadow(0 0 30px rgba(255, 216, 155, 0.6));
+            }
+        }
+        
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        @keyframes textGlow {
+            0% { text-shadow: 0 0 10px rgba(255, 255, 255, 0.3); }
+            100% { text-shadow: 0 0 20px rgba(255, 255, 255, 0.6); }
+        }
+        
+        @keyframes shine {
+            0% { transform: translate(-25%, -25%) rotate(0deg); }
+            100% { transform: translate(-25%, -25%) rotate(360deg); }
         }
         
         @media (max-width: 768px) {
+            .header { padding: 40px 25px; }
+            h1 { font-size: 2.4rem; }
+            .logo { font-size: 4rem; }
+            .content { padding: 30px 20px; }
+            .tab { padding: 20px 15px; }
+            .soon-text { font-size: 2.5rem; }
+            .link-list { grid-template-columns: 1fr; }
+        }
+        
+        @media (max-width: 480px) {
             .header { padding: 30px 20px; }
-            h1 { font-size: 2.2rem; }
+            h1 { font-size: 2rem; }
             .logo { font-size: 3rem; }
-            .content { padding: 20px; }
-            .tab { padding: 15px 10px; }
+            .tab { padding: 15px 10px; font-size: 0.9rem; }
             .soon-text { font-size: 2rem; }
         }
     </style>
 </head>
 <body>
-    <div class="bubble"></div>
-    <div class="bubble"></div>
-    <div class="bubble"></div>
+    <div class="particles" id="particles"></div>
     
     <div class="container">
         <div class="header">
             <div class="logo">✨</div>
             <h1>EveryDay the best</h1>
-            <p>EveryDay bio | Заместитель создателя канала PrankVZ</p>
+            <p class="subtitle">EveryDay bio | Заместитель создателя канала PrankVZ</p>
         </div>
         
         <div class="tabs">
@@ -877,7 +1211,7 @@ HTML_CONTENT = """
                 <i class="fas fa-home"></i> General
             </div>
             <div class="tab" data-tab="nft">
-                <i class="fas fa-coins"></i> NFT
+                <i class="fas fa-gem"></i> NFT
             </div>
             <div class="tab" data-tab="softs">
                 <i class="fas fa-download"></i> Softs
@@ -892,7 +1226,7 @@ HTML_CONTENT = """
                         <div class="title">Канал Telegram 📢</div>
                     </li>
                     <li class="link-item" data-url="https://t.me/mobile_everyday">
-                        <i class="fab fa-telegram"></i>
+                        <i class="fab fa-telegram-plane"></i>
                         <div class="title">Telegram Everyday 💬</div>
                     </li>
                     <li class="link-item" data-url="https://t.me/+m59rdlf7pUY2Mjk9">
@@ -904,7 +1238,7 @@ HTML_CONTENT = """
             
             <div class="tab-content" id="nft">
                 <div class="soon-banner">
-                    <div class="soon-text">Soon...</div>
+                    <div class="soon-text">Coming Soon...</div>
                 </div>
             </div>
             
@@ -920,7 +1254,7 @@ HTML_CONTENT = """
                     </li>
                     <li class="link-item" data-url="https://drive.google.com/uc?export=download&id=1Kl9CvZn2qqTtJUi1toUZKnBKyrOG17Cx">
                         <i class="fas fa-key"></i>
-                        <div class="title">Generate Pass and User 🔑</div>
+                        <div class="title">Generate Pass & User 🔑</div>
                     </li>
                     <li class="link-item" data-url="https://drive.google.com/uc?export=download&id=1PrWY16XUyADSi6K5aT9YmN7xPsHI9Uhk">
                         <i class="fas fa-sun"></i>
@@ -932,12 +1266,40 @@ HTML_CONTENT = """
         
         <div class="footer">
             <p>® 2025 EveryDay the best | Все права защищены</p>
-            <p>by @mobile_everyday</p>
+            <p>by @mobile_everyday | Сделано с ❤️</p>
         </div>
     </div>
     
     <script>
+        // Создание частиц
+        function createParticles() {
+            const particlesContainer = document.getElementById('particles');
+            const particleCount = 15;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                
+                const size = Math.random() * 60 + 20;
+                const posX = Math.random() * 100;
+                const posY = Math.random() * 100;
+                const delay = Math.random() * 20;
+                const duration = 15 + Math.random() * 10;
+                
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.left = `${posX}%`;
+                particle.style.top = `${posY}%`;
+                particle.style.animationDelay = `${delay}s`;
+                particle.style.animationDuration = `${duration}s`;
+                
+                particlesContainer.appendChild(particle);
+            }
+        }
+        
         document.addEventListener('DOMContentLoaded', function() {
+            createParticles();
+            
             // Переключение вкладок
             const tabs = document.querySelectorAll('.tab');
             tabs.forEach(tab => {
@@ -959,7 +1321,12 @@ HTML_CONTENT = """
                 item.addEventListener('click', function() {
                     const url = this.getAttribute('data-url');
                     if (url) {
-                        window.open(url, '_blank');
+                        // Анимация клика
+                        this.style.transform = 'scale(0.95)';
+                        setTimeout(() => {
+                            this.style.transform = '';
+                            window.open(url, '_blank');
+                        }, 150);
                     }
                 });
             });
